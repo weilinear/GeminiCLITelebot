@@ -7,6 +7,11 @@ const port = Number(process.env.PORT || 8765);
 
 /* -------------------- helpers -------------------- */
 
+// Defaults for Slack identity (override with env vars if you like)
+const SLACK_BOT_USERNAME = process.env.SLACK_BOT_USERNAME || "Selector Packet Copilot";
+const SLACK_BOT_ICON_URL = process.env.SLACK_BOT_ICON_URL || "";      // e.g. https://your.cdn/icon.png
+const SLACK_BOT_ICON_EMOJI = process.env.SLACK_BOT_ICON_EMOJI || ":robot_face:";
+
 function runGemini(prompt) {
   return new Promise((resolve, reject) => {
     const p = spawn("gemini", ["--yolo", "--prompt", prompt], { stdio: ["ignore", "pipe", "pipe"] });
@@ -33,6 +38,42 @@ function postJSON(url, payload) {
   req.on("error", e => console.error("postJSON error:", e.message));
   req.write(data);
   req.end();
+}
+
+/**
+ * Post to Slack response_url with name/icon + visibility.
+ * visibility: "ephemeral" | "in_channel"
+ * options can include: thread_ts, blocks, attachments, replace_original, delete_original, unfurl_links, unfurl_media
+ */
+function postSlack(responseUrl, text, visibility = "in_channel", options = {}) {
+  const payload = {
+    response_type: visibility,
+    text,
+    username: SLACK_BOT_USERNAME,
+  };
+
+  // prefer icon_url if provided, else use emoji
+  if (SLACK_BOT_ICON_URL) {
+    payload.icon_url = SLACK_BOT_ICON_URL;
+  } else if (SLACK_BOT_ICON_EMOJI) {
+    payload.icon_emoji = SLACK_BOT_ICON_EMOJI;
+  }
+
+  // copy selected optional fields if present
+  const passthrough = [
+    "thread_ts",
+    "blocks",
+    "attachments",
+    "replace_original",
+    "delete_original",
+    "unfurl_links",
+    "unfurl_media"
+  ];
+  for (const k of passthrough) {
+    if (options[k] !== undefined) payload[k] = options[k];
+  }
+
+  postJSON(responseUrl, payload);
 }
 
 function buildOpsPrompt(obj, headers) {
@@ -73,18 +114,25 @@ const server = http.createServer((req, res) => {
         const user = params.get("user_name") || "";
         const channel = params.get("channel_name") || "";
         const responseUrl = params.get("response_url");
+        const threadTs = params.get("thread_ts"); // if command invoked in a thread
 
-        // 1) Immediate ACK (within 3s)
+        // 1) Immediate ACK (within 3s) — keep private to avoid channel spam
         res.writeHead(200, { "Content-Type": "application/json" });
-        res.end(JSON.stringify({ response_type: "in_channel", text: "Working on it…" }));
+        res.end(JSON.stringify({ response_type: "ephemeral", text: "Working on it…" }));
 
-        // 2) Background work + final post to response_url
+        // 2) Background work + final post to response_url (make public, include icon/name)
         try {
           const reply = await runGemini(`Slack user @${user} in #${channel} asked:\n\n${text}`);
-          postJSON(responseUrl, { text: reply });
+          postSlack(responseUrl, reply, "in_channel", {
+            thread_ts: threadTs || undefined,
+            unfurl_links: false,
+            unfurl_media: false
+          });
           console.log("\n--- Gemini response (Slack) ---\n" + reply + "\n-------------------------------\n");
         } catch (e) {
-          postJSON(responseUrl, { text: `❌ Error: ${e.message}` });
+          postSlack(responseUrl, `❌ Error: ${e.message}`, "ephemeral", {
+            thread_ts: threadTs || undefined
+          });
         }
         return;
       }
@@ -118,11 +166,32 @@ const server = http.createServer((req, res) => {
         try {
           const reply = await runGemini(prompt);
           if (responseUrl) {
-            postJSON(responseUrl, { ok: true, reply });
+            // If it's Slack's response_url, send as public message with icon/name; otherwise plain JSON
+            try {
+              const u = new URL(responseUrl);
+              if (u.hostname.endsWith("slack.com")) {
+                postSlack(responseUrl, reply, "in_channel", { unfurl_links: false, unfurl_media: false });
+              } else {
+                postJSON(responseUrl, { ok: true, reply });
+              }
+            } catch {
+              postJSON(responseUrl, { ok: true, reply });
+            }
           }
           console.log("\n--- Gemini response (async) ---\n" + reply + "\n-------------------------------\n");
         } catch (e) {
-          if (responseUrl) postJSON(responseUrl, { ok: false, error: String(e.message || e) });
+          if (responseUrl) {
+            try {
+              const u = new URL(responseUrl);
+              if (u.hostname.endsWith("slack.com")) {
+                postSlack(responseUrl, `❌ Error: ${String(e.message || e)}`, "ephemeral");
+              } else {
+                postJSON(responseUrl, { ok: false, error: String(e.message || e) });
+              }
+            } catch {
+              postJSON(responseUrl, { ok: false, error: String(e.message || e) });
+            }
+          }
         }
         return;
       }
