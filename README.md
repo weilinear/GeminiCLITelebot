@@ -25,7 +25,7 @@ Copy both the commands and scripts folders into your .gemini folder
 ### Testing your listener 
 If you NGROK out your local 8765 port, you can test your listener by sending a message to the NGROK URL with the following command:
 ```bash
-curl -X POST https://0d84bc7ae107.ngrok-free.app/event   -H "Content-Type: application/json"   -d '{"source":"test","message":"This is a test message from cURL to Gemini CLI. If you are really Gemini CLI please respond with a message that, yes, you are really Gemini CLI and a pleasant haiku for the tester."}'
+curl -X POST https://4b6a9eafe706.ngrok-free.app/event   -H "Content-Type: application/json"   -d '{"source":"test","message":"This is a test message from cURL to Gemini CLI. If you are really Gemini CLI please respond with a message that, yes, you are really Gemini CLI and a pleasant haiku for the tester."}'
 ```
 
 ### MCP Integration
