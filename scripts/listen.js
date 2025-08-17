@@ -12,7 +12,39 @@ const SLACK_BOT_USERNAME = process.env.SLACK_BOT_USERNAME || "Selector Packet Co
 const SLACK_BOT_ICON_URL = process.env.SLACK_BOT_ICON_URL || "";      // e.g. https://your.cdn/icon.png
 const SLACK_BOT_ICON_EMOJI = process.env.SLACK_BOT_ICON_EMOJI || ":robot_face:";
 
+const MAX_LOG_BYTES = Number(process.env.MAX_LOG_BYTES || 4096);
+const LOG_HEADERS   = process.env.LOG_HEADERS === "1";
+const LOG_BODY      = process.env.LOG_BODY === "1";
+
+const color = {
+  dim:  (s) => `\x1b[2m${s}\x1b[0m`,
+  cyan: (s) => `\x1b[36m${s}\x1b[0m`,
+  mag:  (s) => `\x1b[35m${s}\x1b[0m`,
+  yellow:(s)=> `\x1b[33m${s}\x1b[0m`,
+  green:(s)=> `\x1b[32m${s}\x1b[0m`,
+  red:  (s) => `\x1b[31m${s}\x1b[0m`,
+};
+
+function stringify(obj) {
+  try { return JSON.stringify(obj, null, 2); } catch { return String(obj); }
+}
+function truncate(str, max = MAX_LOG_BYTES) {
+  if (str.length <= max) return str;
+  return str.slice(0, max) + `\n… (${str.length - max} more bytes truncated)`;
+}
+function redactHeaders(h) {
+  const clone = { ...h };
+  for (const k of Object.keys(clone)) {
+    if (/authorization|token|cookie|set-cookie|api[-_]key/i.test(k)) {
+      clone[k] = "[redacted]";
+    }
+  }
+  return clone;
+}
+
 function runGemini(prompt) {
+  console.log(color.mag("→ Gemini prompt:"));
+  console.log(color.dim(truncate(prompt)));
   return new Promise((resolve, reject) => {
     const p = spawn("gemini", ["--yolo", "--prompt", prompt], { stdio: ["ignore", "pipe", "pipe"] });
     let out = "", err = "";
@@ -216,4 +248,15 @@ const server = http.createServer((req, res) => {
 
 server.listen(port, () => {
   console.log(`Webhook listener on http://127.0.0.1:${port}/event`);
+});
+
+// Graceful shutdown (Esc in Gemini CLI will send SIGINT)
+process.on("SIGINT", () => {
+  console.log("Received SIGINT, shutting down…");
+  server.close(() => {
+    console.log("Server closed.");
+    process.exit(0);
+  });
+  // Safety: force-exit if close hangs
+  setTimeout(() => process.exit(0), 1500).unref();
 });
