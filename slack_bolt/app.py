@@ -30,7 +30,7 @@ def call_gemini(prompt: str, context: str = "") -> str:
         payload = {"mode": "qa", "text": prompt}
         if context:
             payload["context"] = context
-        r = requests.post(GEMINI_ENDPOINT, json=payload, timeout=60)
+        r = requests.post(GEMINI_ENDPOINT, json=payload, timeout=300)
         print(f"[gemini] POST {GEMINI_ENDPOINT} status={r.status_code}")
         r.raise_for_status()
         data = r.json()
