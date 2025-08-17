@@ -187,8 +187,21 @@ const server = http.createServer((req, res) => {
       const url = new URL(req.url, `http://${req.headers.host}`);
       const forceAsync = url.searchParams.get("async") === "1" ||
         (req.headers["prefer"] || "").toLowerCase().includes("respond-async");
-
-      const prompt = buildOpsPrompt(parsed, req.headers);
+      const mode = (parsed && parsed.mode) || url.searchParams.get("mode") || "";
+          
+      let prompt;
+      if (mode === "qa") {
+        // QA mode: just answer the question
+        const userText = (parsed && parsed.text) || "";
+        const context  = (parsed && parsed.context) || "";
+        prompt =
+          "You are a helpful assistant. Be clear and concise.\n" +
+          (context ? `\n### Context\n${context}\n` : "") +
+          `\n### Question\n${userText}\n`;
+      } else {
+        // Default ops mode (existing behavior)
+        prompt = buildOpsPrompt(parsed, req.headers); // or redact headers if you added that
+      }
 
       if (responseUrl || forceAsync) {
         // Immediate ACK, then background post
