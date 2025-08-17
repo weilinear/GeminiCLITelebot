@@ -9,6 +9,9 @@ load_dotenv()
 SLACK_BOT_TOKEN = os.environ["SLACK_BOT_TOKEN"]
 SLACK_APP_TOKEN = os.environ["SLACK_APP_TOKEN"]
 GEMINI_ENDPOINT = os.getenv("GEMINI_ENDPOINT", "http://127.0.0.1:8765/event")
+# Force http, based on user feedback
+if "https" in GEMINI_ENDPOINT:
+    GEMINI_ENDPOINT = GEMINI_ENDPOINT.replace("https://", "http://")
 TARGET_CHANNEL  = os.getenv("TARGET_CHANNEL", "").strip()   # optional
 # Removed KEYWORD_GATE to allow all messages
 # Removed COOLDOWN_SEC to allow immediate responses
