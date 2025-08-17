@@ -26,7 +26,19 @@ Copy both the commands and scripts folders into your .gemini folder
 /listen: logs - Shows the logs of the listener
 ```
 
-## Testing your listener 
+```bash
+/listen: health - Checks the health of the listener
+```
+
+```bash
+/listen: help - Shows the help for the listener
+```
+
+```bash
+/listen: clear - Clears the logs of the listener
+```
+
+## Testing your listener externally
 If you NGROK out your local 8765 port, you can test your listener by sending a message to the NGROK URL with the following command:
 ```bash
 curl -X POST https://b470a7a88fc5.ngrok-free.app/event   -H "Content-Type: application/json"   -d '{"source":"test","message":"This is a test message from cURL to Gemini CLI. If you are really Gemini CLI please respond with a message that, yes, you are really Gemini CLI and a pleasant haiku for the tester."}'
