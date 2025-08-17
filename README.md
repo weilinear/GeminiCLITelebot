@@ -55,5 +55,17 @@ If your Gemini CLI is integrated with MCP servers they are fully accessible via 
 ## Slack Integration 
 In Slack if you have a bot you can add /slash commands, such as /gemini, and then point the URL to your NGROK URL. This will allow you to send messages to Gemini CLI via Slack. The reponse will be globally available to all users in the channel.
 
+## Slack Bolt 
+There is a Slack Bolt app in the commands folder that can be used to integrate Gemini CLI with Slack. It listens for messages and sends them to Gemini CLI, then returns the response back to Slack.
+
+```bash
+SLACK_BOT_TOKEN=xoxb-***
+SLACK_APP_TOKEN=xapp-***
+GEMINI_ENDPOINT=https://<your-ngrok>.ngrok-free.app/event
+TARGET_CHANNEL=            # (optional) channel ID
+```
+You can set these environment variables in your terminal or in a .env file.
+
+
 ## Notes
 John Capobianco wrote this feature because he belives Gemini CLI, MCP, A2A, are not just the future but very much the present of automation with artificial intelligence. He is a strong advocate for the use of Gemini CLI and MCP servers in network automation. Ideally we can now tie things like Slack, Teams, and other messaging platforms into Gemini CLI and MCP servers to automate responses to messages and events. Gemini can actually participate in conversations and respond to messages in a way that is helpful and informative.
