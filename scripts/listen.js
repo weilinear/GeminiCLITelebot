@@ -1,59 +1,210 @@
 #!/usr/bin/env node
 const http = require("http");
 const https = require("https");
+const fs = require("fs");
+const path = require("path");
 const { spawn } = require("child_process");
 
 const port = Number(process.env.PORT || 8765);
 
-/* -------------------- helpers -------------------- */
+/* -------------------- config & helpers -------------------- */
 
-// Defaults for Slack identity (override with env vars if you like)
-const SLACK_BOT_USERNAME = process.env.SLACK_BOT_USERNAME || "Selector Packet Copilot";
-const SLACK_BOT_ICON_URL = process.env.SLACK_BOT_ICON_URL || "";      // e.g. https://your.cdn/icon.png
+// Slack cosmetics (used when posting back via response_url)
+const SLACK_BOT_USERNAME = process.env.SLACK_BOT_USERNAME || "Webhook Assistant";
+const SLACK_BOT_ICON_URL = process.env.SLACK_BOT_ICON_URL || "";
 const SLACK_BOT_ICON_EMOJI = process.env.SLACK_BOT_ICON_EMOJI || ":robot_face:";
 
+// Logging
 const MAX_LOG_BYTES = Number(process.env.MAX_LOG_BYTES || 4096);
 const LOG_HEADERS   = process.env.LOG_HEADERS === "1";
 const LOG_BODY      = process.env.LOG_BODY === "1";
 
+// Attachment guardrails
+const ATTACH_MAX_FILES = Number(process.env.ATTACH_MAX_FILES || 6);
+const ATTACH_MAX_BYTES = Number(process.env.ATTACH_MAX_BYTES || 50 * 1024 * 1024); // 50 MB per file
+
+// Gemini knobs
+const GEMINI_TIMEOUT_MS = Number(process.env.GEMINI_TIMEOUT_MS || 60000);
+const GEMINI_SYSTEM_PATH = process.env.GEMINI_SYSTEM || "/home/johncapobianco/.gemini/GEMINI.md";
+
+// Load system prompt once (optional)
+let SYSTEM_TEXT = "";
+try {
+  if (GEMINI_SYSTEM_PATH && fs.existsSync(GEMINI_SYSTEM_PATH)) {
+    SYSTEM_TEXT = fs.readFileSync(GEMINI_SYSTEM_PATH, "utf8").trim();
+    console.log(`[init] Loaded system prompt from ${GEMINI_SYSTEM_PATH} (${SYSTEM_TEXT.length} chars)`);
+  }
+} catch (e) {
+  console.warn(`[init] Could not read system file: ${e.message}`);
+}
+
 const color = {
-  dim:  (s) => `\x1b[2m${s}\x1b[0m`,
-  cyan: (s) => `\x1b[36m${s}\x1b[0m`,
-  mag:  (s) => `\x1b[35m${s}\x1b[0m`,
-  yellow:(s)=> `\x1b[33m${s}\x1b[0m`,
-  green:(s)=> `\x1b[32m${s}\x1b[0m`,
-  red:  (s) => `\x1b[31m${s}\x1b[0m`,
+  dim:    (s) => `\x1b[2m${s}\x1b[0m`,
+  mag:    (s) => `\x1b[35m${s}\x1b[0m`,
+  red:    (s) => `\x1b[31m${s}\x1b[0m`,
+  yellow: (s) => `\x1b[33m${s}\x1b[0m`,
 };
 
-function stringify(obj) {
-  try { return JSON.stringify(obj, null, 2); } catch { return String(obj); }
-}
 function truncate(str, max = MAX_LOG_BYTES) {
+  if (!str) return "";
   if (str.length <= max) return str;
   return str.slice(0, max) + `\n… (${str.length - max} more bytes truncated)`;
 }
+function safeJson(obj) { try { return JSON.stringify(obj, null, 2); } catch { return String(obj); } }
 function redactHeaders(h) {
   const clone = { ...h };
   for (const k of Object.keys(clone)) {
-    if (/authorization|token|cookie|set-cookie|api[-_]key/i.test(k)) {
-      clone[k] = "[redacted]";
-    }
+    if (/authorization|token|cookie|set-cookie|api[-_]key/i.test(k)) clone[k] = "[redacted]";
   }
   return clone;
 }
 
-function runGemini(prompt) {
-  console.log(color.mag("→ Gemini prompt:"));
-  console.log(color.dim(truncate(prompt)));
-  return new Promise((resolve, reject) => {
-    const p = spawn("gemini", ["--yolo", "--prompt", prompt], { stdio: ["ignore", "pipe", "pipe"] });
+const isPcap = (fname = "") => /\.pcap(?:ng)?$/i.test(fname);
+
+/** Spawn Gemini CLI with timeout; return { stdout, stderr, code }. */
+function runGeminiProcess(args) {
+  return new Promise((resolve) => {
+    const p = spawn("gemini", args, { stdio: ["ignore", "pipe", "pipe"] });
     let out = "", err = "";
+
+    const to = setTimeout(() => {
+      try { p.kill("SIGKILL"); } catch {}
+      resolve({ stdout: out.trim(), stderr: (err.trim() + " [timeout]"), code: 124 });
+    }, GEMINI_TIMEOUT_MS).unref();
+
     p.stdout.on("data", d => (out += d.toString()));
     p.stderr.on("data", d => (err += d.toString()));
-    p.on("close", code => (code === 0 ? resolve(out.trim()) : reject(new Error(err || `exit ${code}`))));
+    p.on("close", code => {
+      clearTimeout(to);
+      resolve({ stdout: out.trim(), stderr: err.trim(), code });
+    });
   });
 }
 
+/** Compose final prompt (prepend system text if present). */
+function composePrompt(taskPrompt) {
+  if (SYSTEM_TEXT) {
+    return ["### System", SYSTEM_TEXT, "", "### Task", taskPrompt].join("\n");
+  }
+  return taskPrompt;
+}
+
+/** Summarize local files without inlining bytes. */
+function listLocalFiles(saved) {
+  if (!saved.length) return "";
+  const lines = ["### Local files (available in current working directory)", ""];
+  for (const f of saved) {
+    lines.push(`- ${f.filename} (${f.bytes} bytes, ${f.mime || "application/octet-stream"})`);
+  }
+  lines.push(
+    "",
+    "You can open/read these files directly from the working directory to answer.",
+    ""
+  );
+  return lines.join("\n");
+}
+
+/**
+ * Build a Q&A prompt.
+ * No base64 embedding. Just pass user’s text + optional context + a list of local files.
+ */
+function buildQAPrompt(userText, context, saved) {
+  const lines = ["You are a helpful assistant. Be clear and concise."];
+  if (context) lines.push("", "### Context", context);
+  lines.push("", "### Question", userText || "(no text)");
+  if (saved.length) lines.push("", listLocalFiles(saved));
+  return lines.join("\n");
+}
+
+/** Build an ops-style prompt (no embedding). */
+function buildOpsPrompt(obj, headers, saved, userTextForOps = "") {
+  const lines = [
+    "You are an assistant receiving a webhook. Summarize the event and suggest next steps.",
+    "",
+    "### Headers",
+    "```json",
+    safeJson(LOG_HEADERS ? headers : redactHeaders(headers)),
+    "```",
+    "",
+    "### Body",
+    "```json",
+    safeJson(LOG_BODY ? obj : { ...obj, raw: undefined }),
+    "```",
+  ];
+  if (saved.length) lines.push("", listLocalFiles(saved));
+  if (userTextForOps) {
+    lines.push("### Request", userTextForOps, "");
+  }
+  return lines.join("\n");
+}
+
+/** Just pass the composed prompt to gemini; do NOT inline file bytes; gemini reads local files. */
+async function runGemini(taskPrompt) {
+  const finalPrompt = composePrompt(taskPrompt);
+
+  console.log(color.mag("→ Prompt to model:"));
+  console.log(color.dim(truncate(finalPrompt)));
+
+  const args = ["--yolo", "--prompt", finalPrompt];
+  const res = await runGeminiProcess(args);
+
+  if (res.code === 0) return res.stdout;
+  throw new Error(res.stderr || `gemini exit ${res.code}`);
+}
+
+function sanitizeFilename(name) {
+  return (name || "upload.bin").replace(/[^a-zA-Z0-9._-]/g, "_").slice(0, 128);
+}
+function uniquify(baseDir, fname) {
+  let p = path.join(baseDir, fname);
+  if (!fs.existsSync(p)) return p;
+  const ext = path.extname(fname);
+  const stem = path.basename(fname, ext);
+  let i = 1;
+  while (true) {
+    const trial = path.join(baseDir, `${stem}-${i}${ext}`);
+    if (!fs.existsSync(trial)) return trial;
+    i++;
+  }
+}
+
+/**
+ * Decode attachments from JSON and write them into CWD.
+ * Expects: parsed.attachments: [{ filename, mime, data_base64 }]
+ * Returns: [{ absPath, bytes, mime, filename }]
+ */
+function materializeAttachmentsInCWD(parsed) {
+  const saved = [];
+  const baseDir = process.cwd();
+  const atts = Array.isArray(parsed?.attachments) ? parsed.attachments.slice(0, ATTACH_MAX_FILES) : [];
+  for (const att of atts) {
+    try {
+      const fname = sanitizeFilename(att.filename || "upload.bin");
+      const b64   = att.data_base64 || "";
+      if (!b64) continue;
+      const buf   = Buffer.from(b64, "base64");
+      if (buf.length > ATTACH_MAX_BYTES) {
+        console.warn(`[attach] skip ${fname}: ${buf.length} > ${ATTACH_MAX_BYTES}`);
+        continue;
+      }
+      const dest = uniquify(baseDir, fname);
+      fs.writeFileSync(dest, buf);
+      const rec = {
+        absPath: path.resolve(dest),
+        bytes: buf.length,
+        mime: att.mime || "application/octet-stream",
+        filename: path.basename(dest),
+      };
+      saved.push(rec);
+      console.log(`[attach] wrote ${rec.absPath} (${rec.bytes} bytes, ${rec.mime})`);
+    } catch (e) {
+      console.error("[attach] failed to write attachment:", e);
+    }
+  }
+  return saved;
+}
+
+// Simple POST JSON
 function postJSON(url, payload) {
   const data = JSON.stringify(payload);
   const u = new URL(url);
@@ -61,68 +212,24 @@ function postJSON(url, payload) {
     method: "POST",
     hostname: u.hostname,
     path: u.pathname + u.search,
-    headers: {
-      "Content-Type": "application/json",
-      "Content-Length": Buffer.byteLength(data)
-    }
+    headers: { "Content-Type": "application/json", "Content-Length": Buffer.byteLength(data) }
   };
-  const req = (u.protocol === "http:" ? http : https).request(opts, () => {});
+  const client = u.protocol === "http:" ? http : https;
+  const req = client.request(opts, () => {});
   req.on("error", e => console.error("postJSON error:", e.message));
   req.write(data);
   req.end();
 }
 
-/**
- * Post to Slack response_url with name/icon + visibility.
- * visibility: "ephemeral" | "in_channel"
- * options can include: thread_ts, blocks, attachments, replace_original, delete_original, unfurl_links, unfurl_media
- */
+/** Post to Slack response_url with name/icon + visibility. */
 function postSlack(responseUrl, text, visibility = "in_channel", options = {}) {
-  const payload = {
-    response_type: visibility,
-    text,
-    username: SLACK_BOT_USERNAME,
-  };
-
-  // prefer icon_url if provided, else use emoji
-  if (SLACK_BOT_ICON_URL) {
-    payload.icon_url = SLACK_BOT_ICON_URL;
-  } else if (SLACK_BOT_ICON_EMOJI) {
-    payload.icon_emoji = SLACK_BOT_ICON_EMOJI;
-  }
-
-  // copy selected optional fields if present
-  const passthrough = [
-    "thread_ts",
-    "blocks",
-    "attachments",
-    "replace_original",
-    "delete_original",
-    "unfurl_links",
-    "unfurl_media"
-  ];
-  for (const k of passthrough) {
+  const payload = { response_type: visibility, text, username: SLACK_BOT_USERNAME };
+  if (SLACK_BOT_ICON_URL) payload.icon_url = SLACK_BOT_ICON_URL;
+  else if (SLACK_BOT_ICON_EMOJI) payload.icon_emoji = SLACK_BOT_ICON_EMOJI;
+  for (const k of ["thread_ts","blocks","attachments","replace_original","delete_original","unfurl_links","unfurl_media"]) {
     if (options[k] !== undefined) payload[k] = options[k];
   }
-
   postJSON(responseUrl, payload);
-}
-
-function buildOpsPrompt(obj, headers) {
-  return [
-    "You are an ops agent receiving a webhook.",
-    "Summarize the event and propose next actions.",
-    "",
-    "### Headers",
-    "```json",
-    JSON.stringify(headers || {}, null, 2),
-    "```",
-    "",
-    "### Body",
-    "```json",
-    JSON.stringify(obj, null, 2),
-    "```"
-  ].join("\n");
 }
 
 /* -------------------- server -------------------- */
@@ -139,118 +246,101 @@ const server = http.createServer((req, res) => {
     req.on("end", async () => {
       const ct = (req.headers["content-type"] || "").toLowerCase();
 
-      // ---- Slack slash command (form-encoded) ----
+      // Slack slash command (form-encoded)
       if (ct.includes("application/x-www-form-urlencoded")) {
         const params = new URLSearchParams(raw);
         const text = params.get("text") || "";
         const user = params.get("user_name") || "";
         const channel = params.get("channel_name") || "";
         const responseUrl = params.get("response_url");
-        const threadTs = params.get("thread_ts"); // if command invoked in a thread
+        const threadTs = params.get("thread_ts");
 
-        // 1) Immediate ACK (within 3s) — keep private to avoid channel spam
         res.writeHead(200, { "Content-Type": "application/json" });
         res.end(JSON.stringify({ response_type: "ephemeral", text: "Working on it…" }));
 
-        // 2) Background work + final post to response_url (make public, include icon/name)
         try {
           const reply = await runGemini(`Slack user @${user} in #${channel} asked:\n\n${text}`);
-          postSlack(responseUrl, reply, "in_channel", {
-            thread_ts: threadTs || undefined,
-            unfurl_links: false,
-            unfurl_media: false
-          });
-          console.log("\n--- Gemini response (Slack) ---\n" + reply + "\n-------------------------------\n");
+          postSlack(responseUrl, reply, "in_channel", { thread_ts: threadTs || undefined, unfurl_links: false, unfurl_media: false });
         } catch (e) {
-          postSlack(responseUrl, `❌ Error: ${e.message}`, "ephemeral", {
-            thread_ts: threadTs || undefined
-          });
+          postSlack(responseUrl, `❌ Error: ${e.message}`, "ephemeral", { thread_ts: threadTs || undefined });
         }
         return;
       }
 
-      // ---- Generic JSON webhook / curl ----
+      // Generic JSON webhook (from Bolt)
       let parsed;
       try {
         parsed = ct.includes("application/json") ? JSON.parse(raw || "{}") : { raw };
-      } catch {
-        parsed = { raw };
+      } catch (e) {
+        console.error(color.red("[json] parse error:"), e);
+        res.writeHead(200, { "Content-Type": "application/json" });
+        return res.end(JSON.stringify({ ok: false, reply: "❌ Invalid JSON payload." }));
       }
 
-      // If caller provided a response_url, do the same async pattern.
+      // Materialize attachments to CWD
+      const saved = materializeAttachmentsInCWD(parsed);
+
+      // Async semantics (response_url or Prefer: respond-async or ?async=1)
       const responseUrl =
         (parsed && typeof parsed === "object" && parsed.response_url) ||
         (parsed && parsed.slack && parsed.slack.response_url) ||
         null;
-
-      // Optional: allow forcing async via header or query (?async=1)
       const url = new URL(req.url, `http://${req.headers.host}`);
       const forceAsync = url.searchParams.get("async") === "1" ||
         (req.headers["prefer"] || "").toLowerCase().includes("respond-async");
       const mode = (parsed && parsed.mode) || url.searchParams.get("mode") || "";
-          
+
+      // Build prompt AFTER attachments are known (no inlining)
       let prompt;
       if (mode === "qa") {
-        // QA mode: just answer the question
         const userText = (parsed && parsed.text) || "";
         const context  = (parsed && parsed.context) || "";
-        prompt =
-          "You are a helpful assistant. Be clear and concise.\n" +
-          (context ? `\n### Context\n${context}\n` : "") +
-          `\n### Question\n${userText}\n`;
+        prompt = buildQAPrompt(userText, context, saved);
       } else {
-        // Default ops mode (existing behavior)
-        prompt = buildOpsPrompt(parsed, req.headers); // or redact headers if you added that
+        const requestText = parsed?.text || "";
+        prompt = buildOpsPrompt(parsed, req.headers, saved, requestText);
       }
 
+      const doWork = async () => {
+        try {
+          const reply = await runGemini(prompt);
+          return { ok: true, reply };
+        } catch (e) {
+          const msg = String(e.message || e);
+          console.error(color.red(`[gemini] error: ${msg}`));
+          const reply =
+            `❌ Processing failed.\n\nDetails:\n${truncate(msg, 2000)}\n\n` +
+            `Tips:\n• Ensure the local files exist in the working directory (names listed above)\n` +
+            `• Ensure your Gemini CLI/tools can read local files when asked\n`;
+          return { ok: false, reply };
+        }
+      };
+
       if (responseUrl || forceAsync) {
-        // Immediate ACK, then background post
         res.writeHead(202, { "Content-Type": "application/json" });
         res.end(JSON.stringify({ ok: true, status: "accepted", note: "Processing asynchronously" }));
 
-        try {
-          const reply = await runGemini(prompt);
-          if (responseUrl) {
-            // If it's Slack's response_url, send as public message with icon/name; otherwise plain JSON
-            try {
-              const u = new URL(responseUrl);
-              if (u.hostname.endsWith("slack.com")) {
-                postSlack(responseUrl, reply, "in_channel", { unfurl_links: false, unfurl_media: false });
-              } else {
-                postJSON(responseUrl, { ok: true, reply });
-              }
-            } catch {
-              postJSON(responseUrl, { ok: true, reply });
+        const result = await doWork();
+        const text = result.reply;
+        if (responseUrl) {
+          try {
+            const u = new URL(responseUrl);
+            if (u.hostname.endsWith("slack.com")) {
+              postSlack(responseUrl, text, result.ok ? "in_channel" : "ephemeral", { unfurl_links: false, unfurl_media: false });
+            } else {
+              postJSON(responseUrl, { ok: result.ok, reply: text });
             }
-          }
-          console.log("\n--- Gemini response (async) ---\n" + reply + "\n-------------------------------\n");
-        } catch (e) {
-          if (responseUrl) {
-            try {
-              const u = new URL(responseUrl);
-              if (u.hostname.endsWith("slack.com")) {
-                postSlack(responseUrl, `❌ Error: ${String(e.message || e)}`, "ephemeral");
-              } else {
-                postJSON(responseUrl, { ok: false, error: String(e.message || e) });
-              }
-            } catch {
-              postJSON(responseUrl, { ok: false, error: String(e.message || e) });
-            }
+          } catch {
+            postJSON(responseUrl, { ok: result.ok, reply: text });
           }
         }
         return;
       }
 
-      // Synchronous path (curl/Streamlit/etc) – returns the Gemini output directly
-      try {
-        const reply = await runGemini(prompt);
-        res.writeHead(200, { "Content-Type": "application/json" });
-        res.end(JSON.stringify({ ok: true, reply }));
-        console.log("\n--- Gemini response (sync) ---\n" + reply + "\n------------------------------\n");
-      } catch (e) {
-        res.writeHead(500, { "Content-Type": "application/json" });
-        res.end(JSON.stringify({ ok: false, error: String(e.message || e) }));
-      }
+      // Sync response (always 200)
+      const result = await doWork();
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ ok: result.ok, reply: result.reply }));
     });
     return;
   }
@@ -263,13 +353,11 @@ server.listen(port, () => {
   console.log(`Webhook listener on http://127.0.0.1:${port}/event`);
 });
 
-// Graceful shutdown (Esc in Gemini CLI will send SIGINT)
 process.on("SIGINT", () => {
   console.log("Received SIGINT, shutting down…");
   server.close(() => {
     console.log("Server closed.");
     process.exit(0);
   });
-  // Safety: force-exit if close hangs
   setTimeout(() => process.exit(0), 1500).unref();
 });
