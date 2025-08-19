@@ -58,6 +58,12 @@ In Slack if you have a bot you can add /slash commands, such as /gemini, and the
 ## Slack Bolt 
 There is a Slack Bolt app in the commands folder that can be used to integrate Gemini CLI with Slack. It listens for messages and sends them to Gemini CLI, then returns the response back to Slack.
 
+### Cool things with Slack 
+* Send pcaps, imags, pdfs, text, and other files as attachments to your messasge and Gemini CLI will process them.
+
+* Record audio and click send - Gemini CLI will transcribe the audio with Whisper and respond with a text message.
+
+
 ```bash
 SLACK_BOT_TOKEN=xoxb-***
 SLACK_APP_TOKEN=xapp-***
