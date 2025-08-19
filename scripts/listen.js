@@ -183,7 +183,7 @@ const ATTACH_MAX_FILES = Number(process.env.ATTACH_MAX_FILES || 6);
 const ATTACH_MAX_BYTES = Number(process.env.ATTACH_MAX_BYTES || 50 * 1024 * 1024); // 50 MB per file
 
 // Gemini knobs
-const GEMINI_TIMEOUT_MS = Number(process.env.GEMINI_TIMEOUT_MS || 60000);
+const GEMINI_TIMEOUT_MS = Number(process.env.GEMINI_TIMEOUT_MS || 120000);
 const GEMINI_SYSTEM_PATH = process.env.GEMINI_SYSTEM || "/home/johncapobianco/.gemini/GEMINI.md";
 
 // Block Kit mode feature flag (optional): if "1", default JSON-blocks prompts for QA mode
