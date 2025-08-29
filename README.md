@@ -14,35 +14,6 @@ Copy both the commands and scripts folders into your .gemini folder
 /listen: start - Starts the listener on port 8765
 ```
 
-```bash
-/listen: status - Checks the status of the listener
-```
-
-```bash
-/listen: stop - Stops the listener
-```
-
-```bash
-/listen: logs - Shows the logs of the listener
-```
-
-```bash
-/listen: health - Checks the health of the listener
-```
-
-```bash
-/listen: help - Shows the help for the listener
-```
-
-```bash
-/listen: clear - Clears the logs of the listener
-```
-
-```bash
-/listen: live - Starts the listener in live mode, which will show the logs in real-time in the Gemini CLI terminal (local)
-```
-
-
 ## Testing your listener externally
 If you NGROK out your local 8765 port, you can test your listener by sending a message to the NGROK URL with the following command:
 ```bash

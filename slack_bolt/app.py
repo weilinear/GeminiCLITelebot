@@ -47,11 +47,16 @@ def download_file(client, file_id):
         print(f"[file] download error: {e}")
         return None, None, None, str(e)
 
-def call_gemini(prompt: str, context: str = "", file_content=None, filename=None, mimetype=None, blocks=False):
+def call_gemini(prompt: str, context: str = "", file_content=None, filename=None, mimetype=None, blocks=False, timeout_ms=30000):
     try:
-        payload = {"mode": "qa_blocks" if blocks else "qa", "text": prompt}
-        if context:
-            payload["context"] = context
+        payload = {
+            "mode": "qa_blocks" if blocks else "qa",
+            "text": prompt,
+            "context": context or "",
+            # ✅ sync only for text-only messages
+            "sync": False if file_content else True,
+            "timeout_ms": timeout_ms,
+        }
         if file_content and filename:
             file_b64 = base64.b64encode(file_content).decode("utf-8")
             payload["attachments"] = [{
@@ -59,15 +64,14 @@ def call_gemini(prompt: str, context: str = "", file_content=None, filename=None
                 "mime": mimetype or "application/octet-stream",
                 "data_base64": file_b64,
             }]
-            print(f"[gemini] including file: {filename} ({len(file_content)} bytes)")
 
-        r = requests.post(GEMINI_ENDPOINT, json=payload, timeout=300)
+        r = requests.post(GEMINI_ENDPOINT, json=payload, timeout=(timeout_ms/1000.0 + 5))
         print(f"[gemini] POST {GEMINI_ENDPOINT} status={r.status_code}")
         r.raise_for_status()
         return r.json()
     except Exception as e:
         print("[gemini] error:", e)
-        return {"reply": f"❌ Error from Gemini server: {e}"}
+        return {"ok": False, "error": str(e)}
 
 def fetch_thread_context(client, channel, thread_ts, limit=6):
     try:
@@ -124,16 +128,51 @@ def on_message(body, client, logger):
 
         result = call_gemini(prompt, context=ctx_block, file_content=file_content,
                              filename=filename, mimetype=mimetype, blocks=USE_BLOCKS)
-
+        
         try:
-            if isinstance(result, dict) and "blocks" in result and isinstance(result["blocks"], list):
-                client.chat_postMessage(channel=channel, thread_ts=thread_ts,
-                                        blocks=result["blocks"], text="")  # fallback text required
-                print("[send] posted block kit reply")
+            # Text-only + sync path
+            if isinstance(result, dict) and result.get("ok") and result.get("reply"):
+                payload = result["reply"]  # {"text": "...", maybe "audio_path": "..."}
+                reply_text = (payload.get("text") or "").strip()
+                if not reply_text:
+                    reply_text = "(no text)"
+        
+                if USE_BLOCKS and isinstance(result.get("blocks"), list):
+                    app.client.chat_postMessage(
+                        channel=channel,
+                        thread_ts=thread_ts,
+                        blocks=result["blocks"],
+                        text=reply_text  # ✅ REQUIRED fallback
+                    )
+                    print("[send] posted block kit reply")
+                else:
+                    app.client.chat_postMessage(
+                        channel=channel,
+                        thread_ts=thread_ts,
+                        text=reply_text
+                    )
+                    print("[send] posted text reply")
+        
             else:
-                reply_text = result.get("reply") if isinstance(result, dict) else str(result)
-                client.chat_postMessage(channel=channel, text=reply_text, thread_ts=thread_ts)
-                print("[send] posted text reply")
+                # Async or error path
+                err = ""
+                if isinstance(result, dict):
+                    err = result.get("error") or ""
+                if file_content:
+                    # Async by design when files are attached (see #3 below)
+                    notice = "📎 Got your file—processing… I’ll reply here when it’s ready."
+                elif err:
+                    notice = f"❌ {err}"
+                else:
+                    notice = "Working…"
+        
+                app.client.chat_postMessage(
+                    channel=channel,
+                    thread_ts=thread_ts,
+                    text=notice  # ✅ always provide text
+                )
+                print("[send] posted placeholder/notice")
+        
         except Exception as e:
             print("[send] chat_postMessage failed:", e)
 
