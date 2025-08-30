@@ -7,7 +7,22 @@ Clone the repository:
 git clone https://github.com/automateyournetwork/GeminiCLI_Slash_Listen
 ```
 
-Copy both the commands and scripts folders into your .gemini folder 
+You also need the Listen MCP server from the MCP repository:
+```bash
+git clone https://github.com/automateyournetwork/Listen_MCP_for_Gemini_CLI
+```
+
+## Add the MCP
+settings.json
+```json
+    "listen": {
+      "command": "/home/<homedir>/Listen_MCP_for_Gemini_CLI/venv/bin/python",
+      "args": [
+        "/home/<homedir>/Listen_MCP_for_Gemini_CLI/listen.py"
+      ]
+```
+
+Copy the command folder into your .gemini folder 
 
 ## Usage
 ```bash
