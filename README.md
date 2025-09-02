@@ -1,4 +1,7 @@
 # GeminiCLI_Slash_Listen
+
+[![Mentioned in Awesome Gemini CLI](https://awesome.re/mentioned-badge.svg)](https://github.com/Piebald-AI/awesome-gemini-cli)
+
 A /listen feature for Gemini CLI 
 
 ## Installation 
