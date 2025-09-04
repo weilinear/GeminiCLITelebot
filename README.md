@@ -10,27 +10,41 @@ Clone the repository:
 git clone https://github.com/automateyournetwork/GeminiCLI_Slash_Listen
 ```
 
-You also need the Listen MCP server from the MCP repository:
-```bash
-git clone https://github.com/automateyournetwork/Listen_MCP_for_Gemini_CLI
-```
-
-## Add the MCP
-settings.json
-```json
-    "listen": {
-      "command": "/home/<homedir>/Listen_MCP_for_Gemini_CLI/venv/bin/python",
-      "args": [
-        "/home/<homedir>/Listen_MCP_for_Gemini_CLI/listen.py"
-      ]
-```
-
-Copy the command folder into your .gemini folder 
+Copy both the commands and scripts folders into your .gemini folder 
 
 ## Usage
 ```bash
 /listen: start - Starts the listener on port 8765
 ```
+
+```bash
+/listen: status - Checks the status of the listener
+```
+
+```bash
+/listen: stop - Stops the listener
+```
+
+```bash
+/listen: logs - Shows the logs of the listener
+```
+
+```bash
+/listen: health - Checks the health of the listener
+```
+
+```bash
+/listen: help - Shows the help for the listener
+```
+
+```bash
+/listen: clear - Clears the logs of the listener
+```
+
+```bash
+/listen: live - Starts the listener in live mode, which will show the logs in real-time in the Gemini CLI terminal (local)
+```
+
 
 ## Testing your listener externally
 If you NGROK out your local 8765 port, you can test your listener by sending a message to the NGROK URL with the following command:

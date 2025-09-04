@@ -1,57 +1,14 @@
-description = "Serve webhooks: wait for /event or audio transcripts and reply (hands-free)."
+description = "Start a local webhook listener on port 8765 (detached)."
 
 prompt = """
-You have tools: listen_start, listen_next, listen_stop, listen_reply.
-
-High-level behavior:
-- Ensure the listener is running (HTTP enabled).
-- Wait for inbound items via listen_next(timeout_ms=30000).
-- For each item, generate a concise reply and return it to the original HTTP caller with listen_reply(event_id=..., text=...).
-- Keep looping until a stop condition is met.
-
-Defaults:
-- Start the listener with http_enable=true unless it's already running.
-- Use queue_dir=~/listen_queue, language=en, model=base, delete_after=false.
-
-Stop conditions:
-- If listen_next times out 10 times in a row (about 5 minutes), end politely.
-- If the inbound text is exactly: stop | quit | goodbye | exit (case-insensitive), end politely.
-
-Output rules:
-- Only print your assistant replies (the same text you pass to listen_reply).
-
-Steps:
-1) Call listen_start(http_enable=true, http_port=8765, queue_dir="~/listen_queue", language="en", model="base", delete_after=false).
-   - Do NOT restart if it's already running; just proceed.
-
-2) Set idle_timeouts=0.
-
-3) Loop:
-   - R = listen_next(timeout_ms=30000)
-   - If R.ok=false:
-       idle_timeouts += 1
-       If idle_timeouts >= 10:
-           print "No new items for a while. Goodbye."
-           listen_stop()
-           STOP.
-       Else:
-           CONTINUE.
-   - Else:
-       idle_timeouts = 0
-       eid  = R.id
-       text = (R.text or "").strip()
-
-       If lower(text) in {"stop","quit","goodbye","exit"}:
-           print "Okay—stopping the listener. Goodbye."
-           listen_stop()
-           STOP.
-
-       # --- Generate a concise helpful reply to `text` here. Call it REPLY. ---
-       # Keep it short, directly address the user's question or statement.
-
-       # Return the reply to the original HTTP caller:
-       listen_reply(event_id=eid, text=REPLY)
-
-       # Also print the reply to stdout (so the operator sees it locally):
-       print REPLY
+!{
+  mkdir -p /tmp
+  nohup node "$HOME/.gemini/scripts/listen.js" 8765 >> /tmp/gemini-listen.log 2>&1 &
+  echo $! > /tmp/gemini-listen.pid
+  echo "Listener: http://localhost:8765/event"
+  printf "PID: "
+  cat /tmp/gemini-listen.pid
+  echo "Logs: /tmp/gemini-listen.log"
+}
+Return the three lines above exactly.
 """
