@@ -1,5 +1,6 @@
 
 import os
+import logging
 import threading
 import requests
 import base64
@@ -7,6 +8,12 @@ import telebot
 from dotenv import load_dotenv
 
 load_dotenv()
+
+# Configure logging
+logging.basicConfig(
+    level=logging.DEBUG if os.getenv("DEBUG", "0") == "1" else logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s'
+)
 
 TELEGRAM_BOT_TOKEN = os.environ["TELEGRAM_BOT_TOKEN"]
 GEMINI_ENDPOINT = os.getenv("GEMINI_ENDPOINT", "http://127.0.0.1:8765/event")
@@ -18,7 +25,7 @@ DEBUG = os.getenv("DEBUG", "0") == "1"
 
 bot = telebot.TeleBot(TELEGRAM_BOT_TOKEN)
 
-print(f"[boot] TELEGRAM_BOT_TOKEN loaded. TARGET_CHAT_ID={TARGET_CHAT_ID!r}")
+logging.info(f"[boot] TELEGRAM_BOT_TOKEN loaded. TARGET_CHAT_ID={TARGET_CHAT_ID!r}")
 
 def download_file(file_id):
     try:
@@ -34,10 +41,10 @@ def download_file(file_id):
         # Get mimetype from response headers
         mimetype = resp.headers.get('content-type', 'application/octet-stream')
         
-        print(f"[file] downloaded {filename} ({len(resp.content)} bytes, mime={mimetype})")
+        logging.info(f"[file] downloaded {filename} ({len(resp.content)} bytes, mime={mimetype})")
         return resp.content, filename, mimetype, None
     except Exception as e:
-        print(f"[file] download error: {e}")
+        logging.error(f"[file] download error: {e}")
         return None, None, None, str(e)
 
 def call_gemini(prompt: str, context: str = "", file_content=None, filename=None, mimetype=None, timeout_ms=30000):
@@ -58,11 +65,11 @@ def call_gemini(prompt: str, context: str = "", file_content=None, filename=None
             }]
 
         r = requests.post(GEMINI_ENDPOINT, json=payload, timeout=(timeout_ms/1000.0 + 5))
-        print(f"[gemini] POST {GEMINI_ENDPOINT} status={r.status_code}")
+        logging.info(f"[gemini] POST {GEMINI_ENDPOINT} status={r.status_code}")
         r.raise_for_status()
         return r.json()
     except Exception as e:
-        print("[gemini] error:", e)
+        logging.error(f"[gemini] error: {e}")
         return {"ok": False, "error": str(e)}
 
 def get_thread_context(chat_id, message_id, limit=10):
@@ -73,7 +80,7 @@ def get_thread_context(chat_id, message_id, limit=10):
 @bot.message_handler(func=lambda message: True, content_types=['text', 'document', 'photo'])
 def on_message(message):
     if DEBUG:
-        print(f"[debug] received message: {message.__dict__}")
+        logging.debug(f"received message: {message.__dict__}")
 
     chat_id = str(message.chat.id)
     if TARGET_CHAT_ID and chat_id != TARGET_CHAT_ID:
@@ -107,7 +114,7 @@ def on_message(message):
                              filename=filename, mimetype=mimetype)
 
         if DEBUG:
-            print(f"[debug] gemini response: {result}")
+            logging.debug(f"gemini response: {result}")
 
         try:
             if isinstance(result, dict) and result.get("ok") and result.get("reply"):
@@ -120,21 +127,21 @@ def on_message(message):
                 if not reply_text:
                     reply_text = "(no text)"
                 bot.reply_to(message, reply_text)
-                print("[send] posted text reply")
+                logging.info("[send] posted text reply")
             else:
                 err = result.get("error") if isinstance(result, dict) else "Unknown error"
                 notice = f"❌ {err}" if err else "Working…"
                 if file_content and not err:
                     notice = "📎 Got your file—processing… I’ll reply here when it’s ready."
                 bot.reply_to(message, notice)
-                print("[send] posted placeholder/notice")
+                logging.info("[send] posted placeholder/notice")
         except Exception as e:
-            print(f"[send] reply failed: {e}")
+            logging.error(f"[send] reply failed: {e}")
 
     threading.Thread(target=work, daemon=True).start()
 
 def start_telegram_bot():
-    print("Starting Telegram bot…")
+    logging.info("Starting Telegram bot…")
     bot.polling()
 
 if __name__ == "__main__":
