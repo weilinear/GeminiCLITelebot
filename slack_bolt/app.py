@@ -195,5 +195,10 @@ def on_mention(body, say, logger):
     say("Hi! I am listening 👋", thread_ts=event.get("thread_ts") or event.get("ts"))
 
 if __name__ == "__main__":
+    from telegram_app import start_telegram_bot
+    
+    telegram_thread = threading.Thread(target=start_telegram_bot, daemon=True)
+    telegram_thread.start()
+
     print("Starting Slack Bolt (Socket Mode)…")
     SocketModeHandler(app, SLACK_APP_TOKEN).start()
