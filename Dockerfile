@@ -10,6 +10,8 @@ COPY requirements.txt .
 # Install PIP
 RUN apt-get update && apt-get install -y python3 python3-pip
 
+# Install venv
+RUN apt install -y python3.11-venv
 # Set the path to your virtual environment
 ENV VENV_PATH=/opt/venv
 
@@ -30,4 +32,4 @@ COPY src/ /app/src/
 VOLUME /app/mounted_volume
 
 # Set the default command to run when the container starts
-CMD ["/opt/venv/bin/python", "-m src.telegcli.app"]
+CMD ["/opt/venv/bin/python", "src/telegcli/app.py"]
