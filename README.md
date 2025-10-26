@@ -1,12 +1,12 @@
 # Gemini-Cli Telegram Bot
 
-This is built using Telegram (telebot, pytelegrambotapi) to run Gemini Cli in streaming mode. Currently it needs Gemini Cli Nightly to run properly.
+This is built using Telegram (telebot, pytelegrambotapi) to run Gemini Cli in streaming and Yolo mode. Currently it needs Gemini Cli Nightly to run properly.
 
 ## Start
 
 ### Docker
 
-To build and run the Docker image, follow these steps:
+Since it runs in Yolo mode, it might be much safer to use this in a docker container. To build and run the Docker image, follow these steps:
 
 1.  Create a `.env` file in the root directory of the project, similar to `.env.sample`, and fill in your environment variables.
 2.  Build the Docker image:
