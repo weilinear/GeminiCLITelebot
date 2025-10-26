@@ -1,4 +1,4 @@
-slack_bolt 
-requests 
+slack_bolt
+requests
 python-dotenv
 pyTelegramBotAPI
