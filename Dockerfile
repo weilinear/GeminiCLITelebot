@@ -10,8 +10,15 @@ COPY requirements.txt .
 # Install PIP
 RUN apt-get update && apt-get install -y python3 python3-pip
 
-# Install any needed packages specified in requirements.txt
-RUN pip install --no-cache-dir -r requirements.txt
+# Set the path to your virtual environment
+ENV VENV_PATH=/opt/venv
+
+# Create the virtual environment
+RUN python3 -m venv $VENV_PATH
+
+# Activate the venv and install packages
+# Note: We activate it and run pip in the same RUN layer
+RUN $VENV_PATH/bin/pip install --no-cache-dir -r requirements.txt
 
 # Install Gemini CLI
 RUN npm install -g @google/gemini-cli@nightly
@@ -23,4 +30,4 @@ COPY src/ /app/src/
 VOLUME /app/mounted_volume
 
 # Set the default command to run when the container starts
-CMD ["python", "src/telegcli/app.py"]
+CMD ["/opt/venv/bin/python", "-m src.telegcli.app"]
