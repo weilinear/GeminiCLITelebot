@@ -20,7 +20,7 @@ To build and run the Docker image, follow these steps:
 
 ### Debug/Local Run
 #### Check Gemini Cli Version
-It needs gemini cli to support 
+It needs gemini cli to support streaming mode (`--output-format stream-json`).
 ```bash
 $ gemini --output-format stream-json --prompt "What is 2+2?"
 

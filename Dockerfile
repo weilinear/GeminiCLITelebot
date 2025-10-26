@@ -19,9 +19,6 @@ RUN apt-get update && apt-get install -y nodejs npm
 # Install Gemini CLI
 RUN npm install -g @google/gemini-cli@nightly
 
-# Copy the .env file into the container
-COPY .env .env
-
 # Copy the source code into the container
 COPY src/ /app/src/
 
