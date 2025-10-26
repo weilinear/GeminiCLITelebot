@@ -1,35 +1,31 @@
-# Use an official Python runtime as a parent image
-FROM node:24-slim
+# 1. Start with an official Python image, which is smaller and has tools pre-installed.
+FROM python:3.11-slim
 
-# Set the working directory in the container
+# 2. Set the working directory.
 WORKDIR /app
 
-# Copy the requirements file into the container
+# 3. Copy only the requirements file first to leverage Docker's layer caching.
 COPY requirements.txt .
 
-# Install PIP
-RUN apt-get update && apt-get install -y python3 python3-pip
+# 4. Install dependencies directly. No venv needed.
+#    The --no-cache-dir flag reduces image size.
+RUN pip install --no-cache-dir -r requirements.txt
 
-# Install venv
-RUN apt install -y python3.11-venv
-# Set the path to your virtual environment
-ENV VENV_PATH=/opt/venv
+# (Optional) Install Gemini CLI if needed.
+# Note: You'll need to install Node.js and npm first if you use a Python base image.
+# If you don't need it, you can remove these lines.
+RUN apt-get update && apt-get install -y curl && \
+    curl -fsSL https://deb.nodesource.com/setup_24.x | bash - && \
+    apt-get install -y nodejs && \
+    npm install -g @google/gemini-cli@nightly && \
+    apt-get clean && rm -rf /var/lib/apt/lists/*
 
-# Create the virtual environment
-RUN python3 -m venv $VENV_PATH
-
-# Activate the venv and install packages
-# Note: We activate it and run pip in the same RUN layer
-RUN $VENV_PATH/bin/pip install --no-cache-dir -r requirements.txt
-
-# Install Gemini CLI
-RUN npm install -g @google/gemini-cli@nightly
-
-# Copy the source code into the container
+# 5. Copy your application code into the container.
 COPY src/ /app/src/
 
 # Create a directory to mount local folders into
 VOLUME /app/mounted_volume
 
-# Set the default command to run when the container starts
-CMD ["/opt/venv/bin/python", "src/telegcli/app.py"]
+# 6. Set the command to run. This assumes you've added the __init__.py files (Recommended).
+#    The python executable is already on the PATH.
+CMD ["python", "-m", "src.telegcli.app"]
