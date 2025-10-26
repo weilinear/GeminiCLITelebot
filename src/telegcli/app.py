@@ -10,6 +10,11 @@ BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
 if not BOT_TOKEN:
     raise ValueError("Please set the TELEGRAM_BOT_TOKEN environment variable.")
 
+# A list of allowed directories for the /cd command
+ALLOWED_DIRECTORIES = [
+    os.path.abspath(p) for p in os.environ.get("ALLOWED_DIRECTORIES", "./").split(',')
+]
+
 bot = telebot.TeleBot(BOT_TOKEN)
 
 # --- Bot Handlers ---
@@ -30,10 +35,19 @@ def handle_cd(message: Message):
     """
     try:
         # Extract the directory path from the message
-        directory = message.text.split(maxsplit=1)[1]
+        relative_path = message.text.split(maxsplit=1)[1]
         
+        # Get the absolute path of the requested directory
+        target_path = os.path.abspath(os.path.join(os.getcwd(), relative_path))
+        
+        # --- Security Check ---
+        # Check if the target path is within any of the allowed directories
+        if not any(os.path.commonpath([allowed_dir, target_path]) == allowed_dir for allowed_dir in ALLOWED_DIRECTORIES):
+            bot.reply_to(message, f"Error: Access to '{relative_path}' is restricted.")
+            return
+            
         # Change the current working directory
-        os.chdir(directory)
+        os.chdir(target_path)
         
         # Get the new current working directory
         new_cwd = os.getcwd()
@@ -45,7 +59,7 @@ def handle_cd(message: Message):
         bot.reply_to(message, "Please provide a directory path after the /cd command.")
     except FileNotFoundError:
         # Handle case where the directory does not exist
-        bot.reply_to(message, f"Error: Directory not found at '{directory}'")
+        bot.reply_to(message, f"Error: Directory not found at '{relative_path}'")
     except Exception as e:
         # Handle other potential errors
         bot.reply_to(message, f"An error occurred: {e}")

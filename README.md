@@ -1,80 +1,43 @@
-# GeminiCLI_Slash_Listen
+# Gemini-Cli Telegram Bot
 
-[![Mentioned in Awesome Gemini CLI](https://awesome.re/mentioned-badge.svg)](https://github.com/Piebald-AI/awesome-gemini-cli)
+This is built using Telegram (telebot, pytelegrambotapi) to run Gemini Cli in streaming mode. Currently it needs Gemini Cli Nightly to run properly.
 
-A /listen feature for Gemini CLI 
+## Start
 
-## Installation 
-Clone the repository:
+### Docker
+
+To build and run the Docker image, follow these steps:
+
+1.  Create a `.env` file in the root directory of the project, similar to `.env.sample`, and fill in your environment variables.
+2.  Build the Docker image:
+    ```bash
+    docker build -t gemini-cli-telebot .
+    ```
+3.  Run the Docker container:
+    ```bash
+    docker run -d --name gemini-cli-telebot --env-file ./.env gemini-cli-telebot
+    ```
+
+### Debug/Local Run
+#### Check Gemini Cli Version
+It needs gemini cli to support 
 ```bash
-git clone https://github.com/automateyournetwork/GeminiCLI_Slash_Listen
+$ gemini --output-format stream-json --prompt "What is 2+2?"
+
+{"type":"init","timestamp":"2025-10-26T05:10:57.220Z","session_id":"a74f95b6-8130-432a-9cba-9702fd26a429","model":"auto"}
+{"type":"message","timestamp":"2025-10-26T05:10:57.220Z","role":"user","content":"What is 2+2?"}
+{"type":"message","timestamp":"2025-10-26T05:10:59.577Z","role":"assistant","content":"2+2 is 4.","delta":true}
+{"type":"result","timestamp":"2025-10-26T05:10:59.923Z","status":"success","stats":{"total_tokens":8108,"input_tokens":7988,"output_tokens":56,"duration_ms":2703,"tool_calls":0}}
+
+$ gemini --version
+
+0.12.0-nightly.20251023.c4c0c0d1
 ```
 
-Copy both the commands and scripts folders into your .gemini folder 
-
-## Usage
+#### Start the server
 ```bash
-/listen: start - Starts the listener on port 8765
+python -m src.telegcli.app
 ```
 
-```bash
-/listen: status - Checks the status of the listener
-```
-
-```bash
-/listen: stop - Stops the listener
-```
-
-```bash
-/listen: logs - Shows the logs of the listener
-```
-
-```bash
-/listen: health - Checks the health of the listener
-```
-
-```bash
-/listen: help - Shows the help for the listener
-```
-
-```bash
-/listen: clear - Clears the logs of the listener
-```
-
-```bash
-/listen: live - Starts the listener in live mode, which will show the logs in real-time in the Gemini CLI terminal (local)
-```
-
-
-## Testing your listener externally
-If you NGROK out your local 8765 port, you can test your listener by sending a message to the NGROK URL with the following command:
-```bash
-curl -X POST https://464a3243325f.ngrok-free.app/event   -H "Content-Type: application/json"   -d '{"source":"test","message":"This is a test message from cURL to Gemini CLI. If you are really Gemini CLI please respond with a message that, yes, you are really Gemini CLI and a pleasant haiku for the tester."}'
-```
-
-## MCP Integration
-If your Gemini CLI is integrated with MCP servers they are fully accessible via the /listen feature. Meaning Gemini CLI will invoke those MCP servers when a message is received if they will help respond to the message.
-
-## Slack Integration 
-In Slack if you have a bot you can add /slash commands, such as /gemini, and then point the URL to your NGROK URL. This will allow you to send messages to Gemini CLI via Slack. The reponse will be globally available to all users in the channel.
-
-## Slack Bolt 
-There is a Slack Bolt app in the commands folder that can be used to integrate Gemini CLI with Slack. It listens for messages and sends them to Gemini CLI, then returns the response back to Slack.
-
-### Cool things with Slack 
-* Send pcaps, imags, pdfs, text, and other files as attachments to your messasge and Gemini CLI will process them.
-
-* Record audio and click send - Gemini CLI will transcribe the audio with Whisper and respond with a text message.
-
-
-```bash
-SLACK_BOT_TOKEN=xoxb-***
-SLACK_APP_TOKEN=xapp-***
-GEMINI_ENDPOINT=https://<your-ngrok>.ngrok-free.app/event
-TARGET_CHANNEL=            # (optional) channel ID
-```
-You can set these environment variables in your terminal or in a .env file.
-
-
-## Notes
-John Capobianco wrote this feature because he belives Gemini CLI, MCP, A2A, are not just the future but very much the present of automation with artificial intelligence. He is a strong advocate for the use of Gemini CLI and MCP servers in network automation. Ideally we can now tie things like Slack, Teams, and other messaging platforms into Gemini CLI and MCP servers to automate responses to messages and events. Gemini can actually participate in conversations and respond to messages in a way that is helpful and informative.
+# Reference
+This has been inspired by https://github.com/automateyournetwork/GeminiCLI_Slash_Listen. 
