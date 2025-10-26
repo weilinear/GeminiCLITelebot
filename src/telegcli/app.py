@@ -20,21 +20,42 @@ def send_welcome(message: Message):
     Handles the /start and /hello commands with a welcome message.
     """
     bot.reply_to(message, "Hi there! I'm a bot that can chat with Gemini.\n\n"
-                          "To start a chat, use the /chat command followed by your prompt.\n\n"
-                          "For example:\n/chat What is the capital of Washington State?")
+                          "To start a chat, just send me your prompt.\n\n"
+                          "For example:\nWhat is the capital of Washington State?")
 
-@bot.message_handler(commands=['chat'])
-def handle_chat(message: Message):
+@bot.message_handler(commands=['cd'])
+def handle_cd(message: Message):
     """
-    Handles the /chat command to stream a response from Gemini CLI.
+    Handles the /cd command to change the current working directory.
     """
-    user_prompt = message.text.split(maxsplit=1)
-    if len(user_prompt) < 2:
-        bot.reply_to(message, "Please provide a prompt after the /chat command. For example:\n"
-                              "/chat Tell me a fun fact about the ocean.")
-        return
+    try:
+        # Extract the directory path from the message
+        directory = message.text.split(maxsplit=1)[1]
+        
+        # Change the current working directory
+        os.chdir(directory)
+        
+        # Get the new current working directory
+        new_cwd = os.getcwd()
+        
+        # Reply with the new current working directory
+        bot.reply_to(message, f"Changed current working directory to: {new_cwd}")
+    except IndexError:
+        # Handle case where no directory is provided
+        bot.reply_to(message, "Please provide a directory path after the /cd command.")
+    except FileNotFoundError:
+        # Handle case where the directory does not exist
+        bot.reply_to(message, f"Error: Directory not found at '{directory}'")
+    except Exception as e:
+        # Handle other potential errors
+        bot.reply_to(message, f"An error occurred: {e}")
 
-    prompt = user_prompt[1]
+@bot.message_handler(func=lambda message: True)
+def handle_message(message: Message):
+    """
+    Handles all text messages to stream a response from Gemini CLI.
+    """
+    prompt = message.text
     chat_id = message.chat.id
 
     # Send an initial message to be updated with the streamed response
@@ -43,7 +64,7 @@ def handle_chat(message: Message):
 
     try:
         # Command to run Gemini CLI in headless streaming mode
-        command = ['gemini', '--output-format', 'stream-json', '--prompt', prompt]
+        command = ['gemini', '--output-format', 'stream-json', '--prompt', prompt, '--yolo']
 
         # Start the subprocess
         process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
